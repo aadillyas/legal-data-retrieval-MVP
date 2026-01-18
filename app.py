@@ -92,12 +92,18 @@ def download_and_process_drive_docs(service):
                 extracted_docs.append({"source": item['name'], "page": i + 1, "content": text.strip()})
     return extracted_docs
 
-def call_gemini(prompt, context, lang):
+def call_gemini(prompt, context):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_ID}:generateContent?key={GEMINI_API_KEY}"
-    sys_instr = "Professional Legal AI. Use ONLY provided context. Cite source and page."
-    if lang == "ar": sys_instr = "أنت خبير قانوني. أجب فقط باستخدام النصوص المقدمة وذكر اسم الملف ورقم الصفحة."
+    
+    # CRITICAL FIX 1: Explicit instruction to match query language
+    sys_instr = """You are a professional Bilingual Legal AI. 
+    1. Identify the language of the User's Query.
+    2. Respond in the EXACT SAME LANGUAGE as the User's Query (e.g., if asked in English, reply in English).
+    3. Use ONLY the provided context for your answer.
+    4. Always cite the Source and Page number."""
+
     payload = {
-        "contents": [{"parts": [{"text": f"Context:\n{context}\n\nQuery: {prompt}"}]}],
+        "contents": [{"parts": [{"text": f"Context:\n{context}\n\nUser Query: {prompt}"}]}],
         "systemInstruction": {"parts": [{"text": sys_instr}]}
     }
     try:
@@ -115,6 +121,7 @@ def main():
 
     st.set_page_config(page_title="Legal Discovery Pro (POC)", layout="wide")
 
+    # CRITICAL FIX 2: CSS Overhaul to prevent "one word per line" issue
     st.markdown(f"""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Noto+Sans+Arabic:wght@400;600&display=swap');
@@ -124,23 +131,28 @@ def main():
             direction: {direction};
         }}
         
+        /* Container forcing full width */
         .legal-card {{
             background-color: white;
             border-radius: 12px;
-            padding: 2rem;
+            padding: 24px;
             border: 1px solid #e2e8f0;
             margin: 1.5rem 0;
-            width: 100%;
             display: block;
+            width: 100%;
+            min-width: 100%;
             box-sizing: border-box;
+            clear: both;
         }}
         
         .legal-answer {{
             font-size: 1.15rem;
-            line-height: 1.8;
+            line-height: 1.7;
             color: #1e293b;
             text-align: {align};
-            white-space: normal; /* Changed from pre-wrap to prevent narrow-column force wrap */
+            white-space: normal;
+            word-wrap: break-word;
+            display: block;
             width: 100%;
         }}
 
@@ -148,25 +160,29 @@ def main():
             background-color: #ffffff;
             border-radius: 10px;
             padding: 1.25rem;
-            border-{'right' if direction == 'rtl' else 'left'}: 5px solid #b5935e;
+            border-{'right' if direction == 'rtl' else 'left'}: 6px solid #b5935e;
             border-top: 1px solid #e2e8f0;
             border-bottom: 1px solid #e2e8f0;
             border-left: 1px solid #e2e8f0;
             border-right: 1px solid #e2e8f0;
-            margin-bottom: 15px;
-            width: 100%;
-            box-sizing: border-box;
+            margin-bottom: 20px;
             display: block;
+            width: 100%;
+            min-width: 100%;
+            box-sizing: border-box;
+            clear: both;
         }}
 
         .evidence-content {{
             font-size: 0.95rem;
             color: #475569;
-            line-height: 1.8;
+            line-height: 1.6;
             text-align: initial;
             direction: auto;
             unicode-bidi: plaintext;
             white-space: normal;
+            word-break: break-word;
+            display: block;
             width: 100%;
         }}
 
@@ -212,11 +228,13 @@ def main():
             D, I = index.search(np.array(q_vec).astype('float32'), k=3)
             matches = [st.session_state.corpus[idx] for idx in I[0]]
             ctx_str = "\n\n".join([f"Source: {m['source']} P.{m['page']}\n{m['content']}" for m in matches])
-            answer = call_gemini(query, ctx_str, st.session_state.lang_code)
+            
+            # Pass query to AI
+            answer = call_gemini(query, ctx_str)
             
             st.markdown(f"""
                 <div class="legal-card">
-                    <div style="font-weight: bold; color: #64748b; margin-bottom: 10px;">{t['answer_header']}</div>
+                    <div style="font-weight: bold; color: #64748b; margin-bottom: 12px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">{t['answer_header']}</div>
                     <div class="legal-answer">{answer}</div>
                 </div>
             """, unsafe_allow_html=True)
@@ -225,7 +243,7 @@ def main():
             for m in matches:
                 st.markdown(f"""
                     <div class="evidence-card">
-                        <div style="font-weight: bold; font-size: 0.85rem; margin-bottom: 5px;">
+                        <div style="font-weight: bold; font-size: 0.85rem; margin-bottom: 8px; color: #b5935e;">
                             📄 {m['source']} | {t['page_label']} {m['page']}
                         </div>
                         <div class="evidence-content">{m['content']}</div>
