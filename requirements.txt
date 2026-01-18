@@ -1,8 +1,7 @@
 streamlit
-boto3
+google-api-python-client
+google-auth
 sentence-transformers
 faiss-cpu
 pypdf
 requests
-numpy
-pandas
