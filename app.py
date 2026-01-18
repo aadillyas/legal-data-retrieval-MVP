@@ -13,7 +13,6 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- SECRETS & CONFIG ---
-# These are pulled from your Streamlit Cloud "Secrets" settings
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 GDRIVE_FOLDER_ID = st.secrets.get("GDRIVE_FOLDER_ID", "")
 MODEL_ID = "gemini-2.5-flash-preview-09-2025"
@@ -21,12 +20,9 @@ MODEL_ID = "gemini-2.5-flash-preview-09-2025"
 # --- GOOGLE DRIVE AUTH ---
 @st.cache_resource
 def get_gdrive_service():
-    """Authenticates using Service Account credentials from Streamlit Secrets."""
     try:
         if "gcp_service_account" not in st.secrets:
-            st.error("Google Cloud secrets not found in Streamlit settings.")
             return None
-        
         info = st.secrets["gcp_service_account"]
         creds = service_account.Credentials.from_service_account_info(info)
         return build('drive', 'v3', credentials=creds)
@@ -78,11 +74,9 @@ def get_embedding_model():
     return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 def download_and_process_drive_docs(service):
-    """Downloads all PDFs from the target folder and extracts text."""
     query = f"'{GDRIVE_FOLDER_ID}' in parents and mimeType='application/pdf' and trashed=false"
     results = service.files().list(q=query, fields="files(id, name)").execute()
     items = results.get('files', [])
-    
     extracted_docs = []
     for item in items:
         request = service.files().get_media(fileId=item['id'])
@@ -91,24 +85,17 @@ def download_and_process_drive_docs(service):
         done = False
         while not done:
             status, done = downloader.next_chunk()
-        
         reader = PdfReader(fh)
         for i, page in enumerate(reader.pages):
             text = page.extract_text()
             if text and len(text.strip()) > 20:
-                extracted_docs.append({
-                    "source": item['name'],
-                    "page": i + 1,
-                    "content": text.strip()
-                })
+                extracted_docs.append({"source": item['name'], "page": i + 1, "content": text.strip()})
     return extracted_docs
 
 def call_gemini(prompt, context, lang):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_ID}:generateContent?key={GEMINI_API_KEY}"
-    sys_instr = "You are a professional Legal AI. Answer based ONLY on provided context. Cite source and page."
-    if lang == "ar":
-        sys_instr = "أنت خبير قانوني. أجب فقط باستخدام النصوص المقدمة وذكر اسم الملف ورقم الصفحة."
-
+    sys_instr = "Professional Legal AI. Use ONLY provided context. Cite source and page."
+    if lang == "ar": sys_instr = "أنت خبير قانوني. أجب فقط باستخدام النصوص المقدمة وذكر اسم الملف ورقم الصفحة."
     payload = {
         "contents": [{"parts": [{"text": f"Context:\n{context}\n\nQuery: {prompt}"}]}],
         "systemInstruction": {"parts": [{"text": sys_instr}]}
@@ -116,18 +103,15 @@ def call_gemini(prompt, context, lang):
     try:
         res = requests.post(url, json=payload, timeout=25)
         return res.json()['candidates'][0]['content']['parts'][0]['text']
-    except Exception as e:
-        return f"Error: {str(e)}"
+    except Exception as e: return f"Error: {str(e)}"
 
 # --- UI DESIGN SYSTEM ---
 def main():
     if "lang_code" not in st.session_state: st.session_state.lang_code = "ar"
     if "corpus" not in st.session_state: st.session_state.corpus = []
-
     t = TRANSLATIONS[st.session_state.lang_code]
     direction = "rtl" if st.session_state.lang_code == "ar" else "ltr"
     align = "right" if st.session_state.lang_code == "ar" else "left"
-    border_side = "right" if st.session_state.lang_code == "ar" else "left"
 
     st.set_page_config(page_title="Legal Discovery Pro (POC)", layout="wide")
 
@@ -135,7 +119,7 @@ def main():
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Noto+Sans+Arabic:wght@400;600&display=swap');
         
-        html, body, [data-testid="stAppViewContainer"] {{
+        [data-testid="stAppViewContainer"] {{
             font-family: 'Inter', 'Noto Sans Arabic', sans-serif;
             direction: {direction};
         }}
@@ -145,8 +129,10 @@ def main():
             border-radius: 12px;
             padding: 2rem;
             border: 1px solid #e2e8f0;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
             margin: 1.5rem 0;
+            width: 100%;
+            display: block;
+            box-sizing: border-box;
         }}
         
         .legal-answer {{
@@ -154,19 +140,23 @@ def main():
             line-height: 1.8;
             color: #1e293b;
             text-align: {align};
-            white-space: pre-wrap; /* Critical for preserving legal formatting */
+            white-space: normal; /* Changed from pre-wrap to prevent narrow-column force wrap */
+            width: 100%;
         }}
 
         .evidence-card {{
             background-color: #ffffff;
             border-radius: 10px;
             padding: 1.25rem;
-            border-{border_side}: 4px solid #b5935e;
+            border-{'right' if direction == 'rtl' else 'left'}: 5px solid #b5935e;
             border-top: 1px solid #e2e8f0;
             border-bottom: 1px solid #e2e8f0;
             border-left: 1px solid #e2e8f0;
             border-right: 1px solid #e2e8f0;
             margin-bottom: 15px;
+            width: 100%;
+            box-sizing: border-box;
+            display: block;
         }}
 
         .evidence-content {{
@@ -175,8 +165,9 @@ def main():
             line-height: 1.8;
             text-align: initial;
             direction: auto;
-            unicode-bidi: plaintext; /* Fixes mixed-language alignment issues */
-            white-space: pre-wrap; 
+            unicode-bidi: plaintext;
+            white-space: normal;
+            width: 100%;
         }}
 
         .badge {{
@@ -190,26 +181,22 @@ def main():
         </style>
     """, unsafe_allow_html=True)
 
-    # Sidebar
     with st.sidebar:
         st.title(t["sidebar_header"])
         if st.button("English" if st.session_state.lang_code == "ar" else "العربية"):
             st.session_state.lang_code = "en" if st.session_state.lang_code == "ar" else "ar"
             st.rerun()
-        
         st.divider()
         service = get_gdrive_service()
         if service and st.button(t["sync_btn"]):
             with st.spinner("Indexing Docs..."):
                 st.session_state.corpus = download_and_process_drive_docs(service)
                 st.success(f"Loaded {len(st.session_state.corpus)} pages.")
-        
         if st.session_state.corpus:
             st.success(t["status_ready"])
             for doc_name in set([d['source'] for d in st.session_state.corpus]):
                 st.caption(f"📄 {doc_name}")
 
-    # Main Area
     st.title(t["title"])
     st.markdown(f"**{t['subtitle']}** <span class='badge'>{t['badge']}</span>", unsafe_allow_html=True)
 
@@ -217,21 +204,16 @@ def main():
 
     if query and st.session_state.corpus:
         with st.spinner(t["spinner"]):
-            # Semantic Search Flow
             model = get_embedding_model()
             embeddings = model.encode([d['content'] for d in st.session_state.corpus])
             index = faiss.IndexFlatL2(embeddings.shape[1])
             index.add(np.array(embeddings).astype('float32'))
-            
             q_vec = model.encode([query])
             D, I = index.search(np.array(q_vec).astype('float32'), k=3)
             matches = [st.session_state.corpus[idx] for idx in I[0]]
-            
-            # Context Preparation
             ctx_str = "\n\n".join([f"Source: {m['source']} P.{m['page']}\n{m['content']}" for m in matches])
             answer = call_gemini(query, ctx_str, st.session_state.lang_code)
             
-            # Results Rendering
             st.markdown(f"""
                 <div class="legal-card">
                     <div style="font-weight: bold; color: #64748b; margin-bottom: 10px;">{t['answer_header']}</div>
@@ -254,5 +236,4 @@ def main():
 
     st.markdown(f"<div style='text-align: center; border-top: 1px solid #e2e8f0; padding-top: 20px; color: #94a3b8; font-size: 0.85rem; margin-top: 50px;'>{t['footer']}</div>", unsafe_allow_html=True)
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
