@@ -92,18 +92,27 @@ def download_and_process_drive_docs(service):
                 extracted_docs.append({"source": item['name'], "page": i + 1, "content": text.strip()})
     return extracted_docs
 
-def call_gemini(prompt, context):
+def call_gemini(query, context):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_ID}:generateContent?key={GEMINI_API_KEY}"
     
-    # CRITICAL FIX 1: Explicit instruction to match query language
-    sys_instr = """You are a professional Bilingual Legal AI. 
-    1. Identify the language of the User's Query.
-    2. Respond in the EXACT SAME LANGUAGE as the User's Query (e.g., if asked in English, reply in English).
-    3. Use ONLY the provided context for your answer.
-    4. Always cite the Source and Page number."""
+    # REINFORCED LANGUAGE LOGIC
+    sys_instr = """You are a strictly bilingual Legal AI. 
+    MANDATORY RULE: You must respond in the same language as the user's query. 
+    - If the user asks in English, you MUST respond in English.
+    - If the user asks in Arabic, you MUST respond in Arabic.
+    - Use the provided context to answer. If the context is in a different language, translate the information accurately into the response language.
+    - Always cite [Source Name, Page X]."""
+
+    # We add the language command directly into the user prompt as well for redundancy
+    user_prompt = f"""Language Command: Identify the language of the query below and respond ONLY in that language.
+    
+    Context:
+    {context}
+    
+    User Query: {query}"""
 
     payload = {
-        "contents": [{"parts": [{"text": f"Context:\n{context}\n\nUser Query: {prompt}"}]}],
+        "contents": [{"parts": [{"text": user_prompt}]}],
         "systemInstruction": {"parts": [{"text": sys_instr}]}
     }
     try:
@@ -121,7 +130,7 @@ def main():
 
     st.set_page_config(page_title="Legal Discovery Pro (POC)", layout="wide")
 
-    # CRITICAL FIX 2: CSS Overhaul to prevent "one word per line" issue
+    # DEFINTIVE SPACING FIX: Using 'display: table' to force container width
     st.markdown(f"""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Noto+Sans+Arabic:wght@400;600&display=swap');
@@ -131,18 +140,23 @@ def main():
             direction: {direction};
         }}
         
-        /* Container forcing full width */
+        /* The Wrapper for the cards */
+        .legal-container-wrapper {{
+            width: 100%;
+            display: block;
+            margin-bottom: 20px;
+        }}
+
         .legal-card {{
             background-color: white;
             border-radius: 12px;
             padding: 24px;
             border: 1px solid #e2e8f0;
-            margin: 1.5rem 0;
-            display: block;
-            width: 100%;
-            min-width: 100%;
+            display: table !important; /* Forces width calculation */
+            width: 100% !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
             box-sizing: border-box;
-            clear: both;
         }}
         
         .legal-answer {{
@@ -150,27 +164,25 @@ def main():
             line-height: 1.7;
             color: #1e293b;
             text-align: {align};
-            white-space: normal;
-            word-wrap: break-word;
-            display: block;
+            white-space: normal !important;
+            display: table-cell; /* Required for table layout */
             width: 100%;
         }}
 
         .evidence-card {{
             background-color: #ffffff;
             border-radius: 10px;
-            padding: 1.25rem;
+            padding: 20px;
             border-{'right' if direction == 'rtl' else 'left'}: 6px solid #b5935e;
             border-top: 1px solid #e2e8f0;
             border-bottom: 1px solid #e2e8f0;
             border-left: 1px solid #e2e8f0;
             border-right: 1px solid #e2e8f0;
             margin-bottom: 20px;
-            display: block;
-            width: 100%;
-            min-width: 100%;
+            display: table !important; /* Forces width calculation */
+            width: 100% !important;
+            min-width: 100% !important;
             box-sizing: border-box;
-            clear: both;
         }}
 
         .evidence-content {{
@@ -180,9 +192,8 @@ def main():
             text-align: initial;
             direction: auto;
             unicode-bidi: plaintext;
-            white-space: normal;
-            word-break: break-word;
-            display: block;
+            white-space: normal !important;
+            display: table-cell; /* Required for table layout */
             width: 100%;
         }}
 
@@ -221,7 +232,8 @@ def main():
     if query and st.session_state.corpus:
         with st.spinner(t["spinner"]):
             model = get_embedding_model()
-            embeddings = model.encode([d['content'] for d in st.session_state.corpus])
+            sentences = [d['content'] for d in st.session_state.corpus]
+            embeddings = model.encode(sentences)
             index = faiss.IndexFlatL2(embeddings.shape[1])
             index.add(np.array(embeddings).astype('float32'))
             q_vec = model.encode([query])
@@ -229,24 +241,30 @@ def main():
             matches = [st.session_state.corpus[idx] for idx in I[0]]
             ctx_str = "\n\n".join([f"Source: {m['source']} P.{m['page']}\n{m['content']}" for m in matches])
             
-            # Pass query to AI
+            # AI Logic
             answer = call_gemini(query, ctx_str)
             
+            # Answer Rendering
             st.markdown(f"""
-                <div class="legal-card">
-                    <div style="font-weight: bold; color: #64748b; margin-bottom: 12px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">{t['answer_header']}</div>
-                    <div class="legal-answer">{answer}</div>
+                <div class="legal-container-wrapper">
+                    <div class="legal-card">
+                        <div style="font-weight: bold; color: #64748b; margin-bottom: 12px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">{t['answer_header']}</div>
+                        <div class="legal-answer">{answer}</div>
+                    </div>
                 </div>
             """, unsafe_allow_html=True)
             
             st.subheader(t["sources_header"])
             for m in matches:
+                # Evidence Rendering
                 st.markdown(f"""
-                    <div class="evidence-card">
-                        <div style="font-weight: bold; font-size: 0.85rem; margin-bottom: 8px; color: #b5935e;">
-                            📄 {m['source']} | {t['page_label']} {m['page']}
+                    <div class="legal-container-wrapper">
+                        <div class="evidence-card">
+                            <div style="font-weight: bold; font-size: 0.85rem; margin-bottom: 8px; color: #b5935e;">
+                                📄 {m['source']} | {t['page_label']} {m['page']}
+                            </div>
+                            <div class="evidence-content">{m['content']}</div>
                         </div>
-                        <div class="evidence-content">{m['content']}</div>
                     </div>
                 """, unsafe_allow_html=True)
     elif not query:
