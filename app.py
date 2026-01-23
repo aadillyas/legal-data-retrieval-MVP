@@ -38,7 +38,7 @@ TRANSLATIONS = {
         "placeholder": "كيف يمكنني مساعدتك في البحث اليوم؟",
         "thinking": "جاري مراجعة الوثائق القانونية...",
         "sources": "المراجع المستندة:",
-        "footer": "منصة Aadil Illyas القانونية © 2026",
+        "footer": "منصة SCALE القانونية © 2026",
         "view_file": "فتح الملف"
     },
     "en": {
@@ -48,7 +48,7 @@ TRANSLATIONS = {
         "placeholder": "How can I assist with your discovery today?",
         "thinking": "Reviewing legal documents...",
         "sources": "Referenced Sources:",
-        "footer": "Aadil Illyas Legal Platform © 2026",
+        "footer": "SCAL3 Legal Platform POC © 2026",
         "view_file": "Open File"
     }
 }
